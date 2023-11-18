@@ -1,0 +1,128 @@
+---
+title: 'Bias in my Backyard: Exploring the Massachusetts State Police Data'
+author: "Grace Acton"
+date: "18 November 2023"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r load-data, echo=FALSE, include=FALSE}
+data <- readRDS("~/Desktop/M4SJ/yg821jf8611_ma_statewide_2020_04_01.rds")
+boxborough_race <- read.csv("Boxborough_Race_Data.csv")
+library(tidyverse)
+library(DT)
+```
+
+# Introduction
+
+Boxborough, Massachusetts is notorious for its police force. Located right at the intersection of Route 2, Route 111, and Route 495, Boxborough is more heavily trafficked and more heavily policed than most of the towns around it. At any hour of the day, you can find at least one police car, whether it be from the town or the state police force, parked just off the exit ramp from 495. Along the winding, narrow path of 111, Boxborough and state police set up speed traps, parking in the driveways of office parks and private homes to catch speeders.
+
+Boxborough is also located between the two towns I grew up in. My family lived in Acton (yes, I'm an Acton from Acton) for the first twelve years of my life before moving west to Harvard; Acton borders Boxborough to the east, Harvard borders it to the west. Both of my parents and most of my friends have been pulled over in Boxborough, whether for valid reasons or for having 2 inches of snow on top of their cars (*technically illegal*). 
+
+When I told my mom about this assignment, she insisted that I investigate Boxborough. She professes that she has seen police in Boxborough pull over Black and brown drivers for absolutely no reason, and at higher rates than any other racial group. It is important to note that the area of Massachusetts comprised of Boxborough, Harvard, Acton, Stow, Bolton, and Littleton, which has no convenient name and is split between two counties, is overwhelmingly white. Acton and Boxborough have large Asian minority groups, particularly from China and India, but very few Black and Hispanic/Latinx families. Harvard is just extremely white; one day in my high school biology class, the one and only Black student in my graduating class, having reached a point of frustration with white students asking to touch her braids, announced that she could count the number of Black students at our school on one hand, and that half of them were members of her immediate family. 
+
+## Data Sources
+
+The data for this investigation come from the Stanford Open Policing [Project](https://openpolicing.stanford.edu/data/). In particular, I will be examining the Massachusetts State Police data from December 2006 to December 2015. Boxborough, because of its location at the intersection of two major highways, has more State Police activity than other towns in the area. 
+
+## The Demographics of Boxborough
+*Data from the US Census Bureau [QuickFacts](https://www.census.gov/quickfacts/fact/table/boxboroughtownmiddlesexcountymassachusetts/RHI225222)*
+```{r boxborough-race-table, echo=FALSE}
+datatable(boxborough_race)
+```
+
+# Who Gets Stopped by State Police?
+
+The first question to be asked is essentially based on my mom's hypothesis: **do drivers of color get stopped by state police in Boxborough at unfairly high rates?**
+
+```{r boxborough, echo=FALSE}
+boxborough <- data %>% 
+  filter(location == "BOXBOROUGH" | location == "BOXBORO")
+boxborough_race$race_simplified <- c("white", "black", "native", "asian/pacific islander", "pacific", "mixed", "hispanic")
+```
+
+```{r race-counts, echo=FALSE}
+stops_race <- boxborough %>% 
+  group_by(subject_race) %>% 
+  summarise(count_stops = n()) %>% 
+  mutate(percent_total_stops = 100*count_stops/sum(count_stops)) %>% 
+  left_join(boxborough_race, by = c("subject_race" = "race_simplified")) %>% 
+  mutate(percent_population = Proportion) %>% 
+  select(-Proportion, -Race) %>% 
+  filter(is.na(subject_race) == FALSE)
+
+datatable(stops_race)
+```
+
+Note row 3 of the above data table: although Hispanic/Latinx people comprise only 3.3% of the population of Boxborough, 10.3% of all State Police stops in Boxborough are of Hispanic drivers. Also notable is the very low stop rate of Asian/Pacific Islander drivers; although 18.6% of Boxborough residents identify as Asian, only 7% of state police stops are of Asian drivers. Perhaps pleasantly surprising, the rate of Black drivers being stopped by state police is squarely inline with their share of the population, both being around 6%. 
+
+Thus, it seems that Hispanic drivers, not Black drivers, are the ones being unfairly targeted by state police.
+
+# Does State Police Bias End at Stops?
+
+Hispanic drivers are also overrepresented in the number of drivers who receive citations from the state police, and in the drivers who are searched by the police. 
+
+### Receiving Citations
+```{r citations, echo=FALSE}
+citations_race <- boxborough %>% 
+  filter(citation_issued == TRUE) %>% 
+  group_by(subject_race) %>% 
+  summarise(count_citations = n()) %>% 
+  left_join(stops_race, by = join_by(subject_race)) %>% 
+  mutate(proportion_cited = count_citations/count_stops) %>% 
+  mutate(percent_total_citations = 100*count_citations/sum(count_citations)) %>% 
+  mutate(citations_expected = (percent_total_stops/100) * sum(count_citations)) %>% 
+  select(subject_race, count_citations, citations_expected, percent_total_citations, percent_population)
+
+datatable(citations_race)
+```
+
+Here, we see that Hispanic drivers disproportionately receive citations from the state police. Even compared to expected values calculated based on the share of stops, rather than in comparison to the population demographics, Hispanic drivers receive an unfairly high number of citations. 
+
+### Searches 
+```{r searches, echo=FALSE}
+searches_race <- boxborough %>% 
+  filter(search_conducted == TRUE) %>% 
+  group_by(subject_race) %>% 
+  summarise(count_searches = n()) %>% 
+  left_join(stops_race, by = join_by(subject_race)) %>% 
+  mutate(proportion_searched = count_searches/count_stops) %>% 
+  mutate(percent_total_searches = 100*count_searches/sum(count_searches)) %>% 
+  mutate(searches_expected = (percent_total_stops/100) * sum(count_searches)) %>% 
+  select(subject_race, count_searches, searches_expected, percent_total_searches, percent_total_stops)
+
+datatable(searches_race)
+# expected values reveal that Hispanic drivers are searched at a higher rate than expected 
+# white and Asian drivers are searched at a lower rate than expected
+
+```
+
+Here, again, we see that Hispanic drivers are unfairly targeted for searches. Although they represent only 3.3% of the population and 10.3% of all state police stops, Hispanic drivers constitute **25.6%** of drivers searched by the state police. Again, expected values have been calculated to determine the number of searches that would be conducted for each racial group if they were proportional to the number of stops for each group, and searches of Hispanic drivers have far exceeded the expected value. 
+
+Searches of Hispanic drivers are also **least likely to result in a successful search**. A successful search is defined as a search that results in the discovery of contraband alcohol, weapons, or drugs. 
+```{r contraband, echo=FALSE}
+contraband <- boxborough %>% 
+  filter(contraband_found == TRUE) %>% 
+  group_by(subject_race) %>% 
+  summarize(count_success = n()) %>% 
+  left_join(searches_race, by = join_by(subject_race)) %>% 
+  mutate(percent_successful = 100*count_success/count_searches) %>% 
+  select(subject_race, count_success, count_searches, percent_successful)
+
+datatable(contraband)
+```
+
+Only **30.4%** of searches of Hispanic drivers resulted in a successful search.
+
+# A Potential Explanation for this Phenomenon
+
+In pondering why this bias might exist, I was reminded of something we discussed in class several times: it is up to the police, not to the suspect, to identify the suspect's race. "Hispanic" is not a race, it is an ethnicity; members of any race can also identify as Hispanic or Latinx. But, white Americans have a stereotypical image of Hispanic/Latinx people, and, in my experience of this area of Massachusetts, some white people tend to group a lot of non-white people who aren't dark-skinned Black people or East Asian as "Hispanic". I suspect that at least some of the disproportionately large number of "Hispanic" drivers that are stopped by state police do not, in fact, identify as Hispanic or Latinx, but rather the police officer that pulled them over grouped them as Hispanic because they didn't fit neatly into their ideas of white, Black, or Asian. This flaw in the way that racial data is collected makes studying racial bias even more difficult, because it is impossible to tell whether the race of drivers in the dataset is accurate. 
+
+# Works Cited
+
+"Boxborough town, Middlesex County, Massachusetts." US Census Bureau QuickFacts. CSV File. https://www.census.gov/quickfacts/fact/table/boxboroughtownmiddlesexcountymassachusetts/RHI225222
+
+"MA State Patrol." Stanford Open Policing Project. RDS File. https://openpolicing.stanford.edu/data/ 
+
+
